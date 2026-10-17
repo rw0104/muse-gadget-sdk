@@ -114,3 +114,7 @@ dependencies:
     version: "^1.1.1"
     rules:
       - if: "$CONFIG{MUSE_BOARD_ID} == \"lckfb_szpi_esp32_s3\""
+  espressif/esp_websocket_client:
+    version: "~1.2"
+    rules:
+      - if: "$CONFIG{MUSE_BOARD_ID} != \"none\""

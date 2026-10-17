@@ -975,6 +975,7 @@ static void turn_finish(void)
         muse_tts_cancel();
         s_turn.pcm_tts = false;
     }
+    muse_tts_close();
 #endif
 }
 
@@ -1023,6 +1024,11 @@ static bool turn_start(uint32_t gen, bool text)
     s_reply_shown[0] = '\0';
     s_turn.start_us = now_us();
     resampler_init(&s_turn.up, MIC_RATE, DICT_RATE);
+#if CONFIG_MUSE_TTS_QWEN
+    if (!text && muse_settings_speaker_on()) {
+        muse_tts_prepare();   /* the TTS session is ready by the time the reply is */
+    }
+#endif
     if (!ensure_connected()) {
         turn_fail(muse_hatch_configured() ? "CAN'T REACH MUSE" : "MUSE NOT SET UP");
         return false;

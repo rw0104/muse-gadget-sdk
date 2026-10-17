@@ -4,10 +4,12 @@
 /*
  * Speaking replies with Qwen TTS (CONFIG_MUSE_TTS_QWEN).
  *
- * One reply at a time: muse_tts_speak() hands the text to a background task,
- * which streams qwen3-tts-flash's 24 kHz mono PCM into a buffer that the chat
- * task drains with muse_tts_read(). The DashScope key lives in NVS, set over
- * serial; without one, muse_tts_ready() is false and replies stay text.
+ * qwen3-tts-flash-realtime over a WebSocket session opened as the turn starts
+ * (muse_tts_prepare) and closed with it (muse_tts_close). One reply at a time:
+ * muse_tts_speak() sends the text, and its 16 kHz mono PCM collects in a
+ * buffer the chat task drains with muse_tts_read(). The DashScope key lives
+ * in NVS, set over serial; without one, muse_tts_ready() is false and replies
+ * stay text.
  */
 
 #include <stdbool.h>
@@ -18,10 +20,17 @@
 extern "C" {
 #endif
 
-#define MUSE_TTS_RATE 24000
+#define MUSE_TTS_RATE 16000
 
 /* A key is stored. */
 bool muse_tts_ready(void);
+
+/* Opens the session ahead of the reply, so speaking starts sooner. No-op
+ * without a key or with one already open. Never blocks. */
+void muse_tts_prepare(void);
+
+/* Closes the session, in the background. */
+void muse_tts_close(void);
 
 /* Starts speaking `text` (copied). False if no key, or still busy with the last one. */
 bool muse_tts_speak(const char *text);

@@ -249,8 +249,9 @@ menu "Muse"
         depends on MUSE_HATCH
         default y
         help
-            Speaks Muse's replies with qwen3-tts-flash once a DashScope API key
-            is stored on the device over serial (">tts_key=sk-..."; an empty
+            Speaks Muse's replies with qwen3-tts-flash-realtime, over a
+            WebSocket session opened as each turn starts, once a DashScope API
+            key is stored on the device over serial (">tts_key=sk-..."; an empty
             key removes it). The key is kept in NVS, never in the firmware.
             Without a key, or with the speaker off, replies stay text only.
             ">tts_voice=NAME" picks a system voice (default Cherry).

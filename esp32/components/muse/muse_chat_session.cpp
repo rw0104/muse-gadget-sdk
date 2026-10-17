@@ -69,6 +69,9 @@ extern "C" {
 #include "muse_account_api.h"
 #include "muse_link.h"
 #include "muse_settings.h"
+#if CONFIG_MUSE_TTS_QWEN
+#include "muse_tts.h"
+#endif
 #include "muse_wifi.h"
 }
 #include "muse_chat_priv.h"
@@ -244,6 +247,7 @@ struct turn_t {
     /* TTS */
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
+    bool pcm_tts;            /* tts_msg's speech comes from muse_tts as PCM, not MP3 */
     uint8_t *mp3;            /* MP3_BUF */
     size_t mp3_len;
     bool mp3_ended;
@@ -966,6 +970,12 @@ static void turn_finish(void)
     s_turn.tts_msg = -1;
     s_turn.silent = false;
     s_turn.mp3_len = 0;
+#if CONFIG_MUSE_TTS_QWEN
+    if (s_turn.pcm_tts) {
+        muse_tts_cancel();
+        s_turn.pcm_tts = false;
+    }
+#endif
 }
 
 static void turn_fail(const char *why)
@@ -1533,6 +1543,23 @@ static void start_tts(void)
          * end. decode() plays it at the speaker's volume, captions following,
          * and finishes the message once it's drained.
          */
+#if CONFIG_MUSE_TTS_QWEN
+        /* Qwen TTS streams PCM instead (play_tts_pcm); without a key, or
+         * with the speaker off, the reply stays text. */
+        if (s_turn.texts && muse_settings_speaker_on() && muse_tts_speak(s_turn.texts + i * TEXT_MAX)) {
+            m.pcm_start = s_turn.pcm_out;
+            m.pcm_frames = 0;
+            m.tts = TTS_ACTIVE;
+            s_turn.tts_msg = i;
+            s_turn.silent = false;
+            s_turn.pcm_tts = true;
+            s_turn.down_rate = 0;
+            mark(M_TTS);
+            ESP_LOGI(TAG, "speaking message %s (%u chars)", m.id, (unsigned)m.len);
+            show_reply_start(m);
+            return;
+        }
+#endif
         m.pcm_start = s_turn.pcm_out;
         m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
         m.tts = TTS_ACTIVE;
@@ -1588,6 +1615,44 @@ static void pace_silently(void)
     }
 }
 
+#if CONFIG_MUSE_TTS_QWEN
+/* Resamples Qwen TTS's PCM into the reply buffer while it has room. */
+static void play_tts_pcm(void)
+{
+    msg_t &m = s_turn.msgs[s_turn.tts_msg];
+    if (s_turn.down_rate != MUSE_TTS_RATE) {
+        s_turn.down_rate = MUSE_TTS_RATE;
+        resampler_init(&s_turn.down, MUSE_TTS_RATE, MIC_RATE);
+    }
+    const size_t chunk = MINIMP3_MAX_SAMPLES_PER_FRAME;
+    while (xStreamBufferSpacesAvailable(s_out) >= (chunk + 8) * sizeof(int16_t)) {
+        size_t got = muse_tts_read(s_pcm, chunk);
+        if (!got) {
+            break;
+        }
+        size_t n = resample(&s_turn.down, s_pcm, got, s_pcm16);
+        if (s_turn.gen == s_gen.load()) {
+            mark(M_AUDIO);
+            xStreamBufferSend(s_out, s_pcm16, n * sizeof(int16_t), 0);
+        }
+        s_turn.pcm_out += n;
+    }
+    if (!muse_tts_finished()) {
+        return;
+    }
+    s_turn.pcm_tts = false;
+    if (muse_tts_failed() && s_turn.pcm_out == m.pcm_start) {
+        /* Nothing spoken: show the text at reading pace instead. */
+        m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
+        s_turn.silent = true;
+        return;
+    }
+    m.pcm_frames = s_turn.pcm_out - m.pcm_start;
+    m.tts = TTS_FINISHED;
+    s_turn.tts_msg = -1;
+}
+#endif
+
 /* Decodes buffered MP3 while the reply buffer has room. */
 static void decode(void)
 {
@@ -1598,6 +1663,12 @@ static void decode(void)
         pace_silently();
         return;
     }
+#if CONFIG_MUSE_TTS_QWEN
+    if (s_turn.pcm_tts) {
+        play_tts_pcm();
+        return;
+    }
+#endif
     /*
      * minimp3 only takes a frame once it can see the next one's header. Given
      * less, it resets and says to skip all of it, which drops speech and clicks.

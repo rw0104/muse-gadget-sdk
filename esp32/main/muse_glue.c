@@ -45,6 +45,9 @@
 #include "muse_mem.h"
 #include "muse_settings.h"
 #include "muse_state.h"
+#if CONFIG_MUSE_TTS_QWEN
+#include "muse_tts.h"
+#endif
 
 static const char *TAG = "link.muse";
 
@@ -634,13 +637,21 @@ static void boot_task(void *arg) {
     vTaskDelete(NULL);
 }
 
+// Serial setup commands: the SDK token, and the Qwen TTS key and voice.
+static bool console_hook(const char *line) {
+#if CONFIG_MUSE_TTS_QWEN
+    if (muse_tts_console_command(line)) return true;
+#endif
+    return sdk_token_console_command(line);
+}
+
 void muse_glue_start(void) {
     // First, before Link's Wi-Fi, BLE and tunnel and Muse's display take and
     // fragment internal RAM: the CPU's light-sleep retention memory.
     muse_input_power_init();
     s_ready = xEventGroupCreate();
     muse_link_register(&s_ops);
-    muse_input_set_console_hook(sdk_token_console_command);
+    muse_input_set_console_hook(console_hook);
     muse_ble_set_name(identity_ble_name());
     ble_companion_t companion = {
         .svcs = muse_ble_services(),

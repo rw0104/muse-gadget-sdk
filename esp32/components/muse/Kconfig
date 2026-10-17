@@ -55,6 +55,10 @@ menu "Muse"
             bool "AIPI Lite (ESP32-S3, two buttons, no touch)"
             depends on IDF_TARGET_ESP32S3
 
+        config MUSE_BOARD_LCKFB_SZPI_ESP32_S3
+            bool "LCKFB SZPI ESP32-S3 (320x240 touch LCD, ES8311 / ES7210)"
+            depends on IDF_TARGET_ESP32S3
+
         config MUSE_BOARD_ESPRESSIF_BOX_3
             bool "Espressif ESP32-S3-BOX-3 (320x240 touch LCD, speaker and microphones)"
             depends on IDF_TARGET_ESP32S3
@@ -130,6 +134,7 @@ menu "Muse"
         default "waveshare_s3_185c" if MUSE_BOARD_WAVESHARE_S3_185C
         default "esp_mosaico" if MUSE_BOARD_ESP_MOSAICO
         default "aipi" if MUSE_BOARD_AIPI
+        default "lckfb_szpi_esp32_s3" if MUSE_BOARD_LCKFB_SZPI_ESP32_S3
         default "espressif_box_3" if MUSE_BOARD_ESPRESSIF_BOX_3
         default "waveshare_c6_18" if MUSE_BOARD_WAVESHARE_C6_18
         default "waveshare_c6_206" if MUSE_BOARD_WAVESHARE_C6_206
@@ -153,7 +158,7 @@ menu "Muse"
     # (the Watcher's USB-C goes to a CH342) or the chip has none.
     config MUSE_CONSOLE_UART
         bool
-        default y if MUSE_BOARD_SENSECAP_WATCHER || MUSE_BOARD_WAVESHARE_S3_LCD7 || MUSE_BOARD_WAVESHARE_S3_LCD128 || !SOC_USB_SERIAL_JTAG_SUPPORTED
+        default y if MUSE_BOARD_SENSECAP_WATCHER || MUSE_BOARD_WAVESHARE_S3_LCD7 || MUSE_BOARD_WAVESHARE_S3_LCD128 || MUSE_BOARD_LCKFB_SZPI_ESP32_S3 || !SOC_USB_SERIAL_JTAG_SUPPORTED
 
     # A board overlay can raise this for a quiet speaker.
     config MUSE_DEFAULT_VOLUME
@@ -238,6 +243,25 @@ menu "Muse"
             muse_chat_session.cpp is where a TTS API of your own can speak
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
+
+    config MUSE_TTS_QWEN
+        bool "Speak replies with Qwen TTS (Alibaba Cloud Model Studio)"
+        depends on MUSE_HATCH
+        default y
+        help
+            Speaks Muse's replies with qwen3-tts-flash once a DashScope API key
+            is stored on the device over serial (">tts_key=sk-..."; an empty
+            key removes it). The key is kept in NVS, never in the firmware.
+            Without a key, or with the speaker off, replies stay text only.
+            ">tts_voice=NAME" picks a system voice (default Cherry).
+
+    config MUSE_TTS_QWEN_HOST
+        string "DashScope host"
+        depends on MUSE_TTS_QWEN
+        default "dashscope.aliyuncs.com"
+        help
+            dashscope.aliyuncs.com for Beijing keys, dashscope-intl.aliyuncs.com
+            for Singapore ones. Keys work in their own region only.
 
     config MUSE_HATCH_COMPACT_BUFFERS
         bool "Smaller voice session buffers, for 2 MB of PSRAM"

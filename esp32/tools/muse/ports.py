@@ -32,6 +32,7 @@ CH342 = (0x1A86, 0x55D2)    # WCH dual UART bridge: two ports per device
 CH9102 = (0x1A86, 0x55D4)   # WCH single UART bridge
 CH343 = (0x1A86, 0x55D3)    # WCH single UART bridge on Waveshare 7-inch and 1.28-inch LCDs
 CP210X = (0x10C4, 0xEA60)   # Silicon Labs CP2104 bridge
+CH340K = (0x1A86, 0x7522)   # WCH CH340K on the LCKFB SZPI ESP32-S3
 
 
 def _usbs(usb):
@@ -67,15 +68,16 @@ USB = {
     "watcher": CH342,   # the ESP32-S3 on the second port; the Himax camera chip is on the first
     "plus2": CH9102,
     "core2": (CP210X, CH9102),
+    "szpi": CH340K,
 }
 # Boards whose console takes Muse's serial commands (tools/muse/chat.py). The
 # Watcher reads them on its CH342 port with MUSE_CONSOLE_UART.
-COMMANDS = ("s3", "s3n", "s3-216", "185c", "aipi", "box3", "c6", "c6-206", "sticks3", "watcher", "plus2", "cardputer-adv", "stopwatch", "cores3", "core2", "fnk0104b", "jc3248w535", "lcd7", "lcd128", "vn183", "ai-passport", "echoear")
+COMMANDS = ("s3", "s3n", "s3-216", "185c", "aipi", "box3", "c6", "c6-206", "sticks3", "watcher", "plus2", "cardputer-adv", "stopwatch", "cores3", "core2", "fnk0104b", "jc3248w535", "lcd7", "lcd128", "vn183", "ai-passport", "echoear", "szpi")
 # Bridges that drop bytes when a whole packet arrives at once, so writes to them
 # go 64 bytes at a time at the line rate (paced_esptool.py, chat.Board.write).
 PACED = (CH342,)
 KINDS = {USJ: "Espressif USB Serial/JTAG", CH342: "CH342 bridge", CH9102: "CH9102 bridge", CH343: "CH343 bridge",
-         CP210X: "CP2104 bridge"}
+         CP210X: "CP2104 bridge", CH340K: "CH340K bridge"}
 
 
 class NotFound(Exception):

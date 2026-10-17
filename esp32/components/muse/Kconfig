@@ -244,6 +244,17 @@ menu "Muse"
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
 
+    config MUSE_AUDIO_RATE
+        int "Audio sample rate (Hz)"
+        depends on MUSE_ENABLED
+        range 16000 24000
+        default 16000
+        help
+            The mic and speaker share one I2S bus, so both run at this rate.
+            24000 is what Muse's dictation and Qwen TTS use natively: spoken
+            replies keep the treble 16000 cuts off. Both codecs must support
+            it on the board; 16000 is the tested default.
+
     config MUSE_TTS_QWEN
         bool "Speak replies with Qwen TTS (Alibaba Cloud Model Studio)"
         depends on MUSE_HATCH

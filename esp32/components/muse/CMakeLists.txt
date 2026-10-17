@@ -146,6 +146,12 @@ idf_component_register(
     PRIV_REQUIRES ${muse_priv_requires}
 )
 
+if(CONFIG_MUSE_TTS_QWEN)
+    # esp_websocket_client starts its task on no core in particular; muse_tts.c
+    # wraps the call to keep its task off the audio core.
+    target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=xTaskCreatePinnedToCore")
+endif()
+
 if(CONFIG_MUSE_ENABLED)
     # LVGL spins forever on a failed assert unless LV_ASSERT_HANDLER is set,
     # which its Kconfig can't do. Abort, so the panic handler prints a backtrace

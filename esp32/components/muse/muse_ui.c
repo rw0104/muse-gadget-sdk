@@ -522,6 +522,14 @@ static const lv_font_t *caption_font(void)
 #endif
 }
 
+#if CONFIG_MUSE_CJK_FONT
+/* Lines of 16 px CJK in the compact layout's caption band. */
+static int cjk_caption_lines(void)
+{
+    return s_h >= 220 ? 2 : 1;
+}
+#endif
+
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color)
 {
     lv_obj_t *l = lv_label_create(parent);
@@ -980,8 +988,9 @@ static void build_screen(void)
         lv_obj_align(s_caption_lbl, LV_ALIGN_BOTTOM_MID, 0, (s_tall || s_tv) ? -30 : -3);
 #if CONFIG_MUSE_CJK_FONT
         /* CJK doesn't fit unscii-8's cell, so a reply with CJK in it fills the
-         * band one line at a time in the 16 px caption font instead. */
-        muse_state_set_cjk_page(s_w / lv_font_get_glyph_width(caption_font(), 'M', ' '), 1);
+         * band in the 16 px caption font instead: two lines where the band can
+         * grow up over Muse's chin, one on the smallest screens. */
+        muse_state_set_cjk_page(s_w / lv_font_get_glyph_width(caption_font(), 'M', ' '), cjk_caption_lines());
 #endif
 
         s_bar = lv_obj_create(face);
@@ -1545,7 +1554,9 @@ static void update_status(muse_mode_t mode, float now)
         lv_obj_t *lbl = answer >= 0 ? s_reply_lbl : s_caption_lbl;
 #if CONFIG_MUSE_CJK_FONT
         if (s_small) {
-            lv_obj_set_style_text_font(s_caption_lbl, muse_text_has_cjk(caption) ? caption_font() : &lv_font_unscii_8, 0);
+            bool cjk = muse_text_has_cjk(caption);
+            lv_obj_set_style_text_font(s_caption_lbl, cjk ? caption_font() : &lv_font_unscii_8, 0);
+            lv_obj_set_height(s_caption_lbl, cjk ? cjk_caption_lines() * (16 + 2) + 4 : 2 * 8 + 2 + 4);
         }
 #endif
         lv_label_set_text(lbl, caption);

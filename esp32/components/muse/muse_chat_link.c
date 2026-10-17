@@ -44,7 +44,11 @@
 
 static const char *TAG = "muse_chat_link";
 
+#ifdef CONFIG_MUSE_AUDIO_RATE
+#define MIC_RATE CONFIG_MUSE_AUDIO_RATE
+#else
 #define MIC_RATE 16000
+#endif
 #define STAGE_BYTES 1536                /* PCM per body chunk: 2 KB of base64, 48 ms */
 #define CHUNK_BYTES (STAGE_BYTES / 3 * 4)
 #define ACK_MAX 2048

@@ -61,6 +61,10 @@ esp_err_t lckfb_szpi_audio_init(esp_codec_dev_handle_t *spk, esp_codec_dev_handl
     i2s_chan_handle_t tx, rx;
     i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan.auto_clear = true;
+    /* 6 x 360 frames: 90 ms at 24 kHz, what the default 6 x 240 gives at
+     * 16 kHz. DMA buffers are internal RAM, which Wi-Fi and TLS need too. */
+    chan.dma_desc_num = 6;
+    chan.dma_frame_num = 360;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan, &tx, &rx), TAG, "I2S channels");
     const i2s_std_config_t std = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(MUSE_AUDIO_RATE),

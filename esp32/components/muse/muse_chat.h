@@ -81,7 +81,7 @@ bool muse_hatch_ready(void);
 
 /* Press: connects if needed and starts streaming speech to the VM. */
 void muse_hatch_turn_begin(void);
-/* 16 kHz mono speech, in order, from press to release. */
+/* Mono speech at the board's audio rate, in order, from press to release. */
 void muse_hatch_turn_audio(const int16_t *pcm, size_t frames);
 /* Release: no more audio; the reply follows. */
 void muse_hatch_turn_end(void);
@@ -107,7 +107,7 @@ muse_hatch_ev_t muse_hatch_turn_event(char *text, size_t cap);
  */
 bool muse_hatch_turn_caption(size_t played, char *out, size_t cap);
 
-/* Reply speech as 16 kHz mono. Waits up to wait_ms for some; returns frames read. */
+/* Reply speech as mono at the board's audio rate. Waits up to wait_ms for some; returns frames read. */
 size_t muse_hatch_turn_read(int16_t *pcm, size_t frames, int wait_ms);
 
 /* Bench test: decodes a built-in MP3 to 16 kHz; caller frees *pcm. Returns frames. */

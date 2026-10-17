@@ -21,15 +21,16 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "sdkconfig.h"
 
 /*
  * The board's mic and speaker codecs share one duplex I2S bus, so both run at
- * the same format: 16 kHz, 16-bit, 2 slots. This module hides that and
+ * the same format: CONFIG_MUSE_AUDIO_RATE, 16-bit, 2 slots. This module hides that and
  * exposes mono buffers. Captured audio is high-passed to remove DC and rumble.
  */
 
-#define MUSE_AUDIO_RATE 16000
-#define MUSE_AUDIO_CHUNK 320   /* 20 ms of mono frames */
+#define MUSE_AUDIO_RATE CONFIG_MUSE_AUDIO_RATE
+#define MUSE_AUDIO_CHUNK (MUSE_AUDIO_RATE / 50)   /* 20 ms of mono frames */
 
 esp_err_t muse_audio_init(int volume, int mic_gain_db);
 

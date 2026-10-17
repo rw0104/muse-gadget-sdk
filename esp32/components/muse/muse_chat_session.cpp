@@ -88,7 +88,11 @@ static const char *TAG = "muse_chat_session";
 #define NOISE_PORT 443
 #define IO_TIMEOUT_US (15 * 1000000LL)
 
+#ifdef CONFIG_MUSE_AUDIO_RATE
+#define MIC_RATE CONFIG_MUSE_AUDIO_RATE    /* the board's audio rate: mic in, reply out */
+#else
 #define MIC_RATE 16000
+#endif
 #define DICT_RATE 24000
 #define DICT_CHUNK_BYTES 8192              /* ~170 ms at 24 kHz, as hatch-test sends */
 #define SCRATCH (64 * 1024)                /* inbound frames reassemble up to this */
@@ -108,8 +112,9 @@ static const char *TAG = "muse_chat_session";
 #define MP3_POLL_ROOM (SCRATCH + 8192)     /* stop reading the socket below this much MP3 room */
 static_assert(MP3_BUF > MP3_POLL_ROOM + MP3_HOLD, "reads would stall with the MP3 buffer empty");
 #define EV_TEXT 72
-#define TEXT_MAX 1024                      /* a message's text, for captions timed to its speech */
+#define TEXT_MAX 4096                      /* a message's text, for captions timed to its speech */
 #define SPEECH_CHARS_PER_S 14              /* until the speech's length is known */
+#define CJK_CHARS_PER_10S 42               /* the same for Chinese and Japanese characters */
 #define TEXT_CHARS_PER_S 16                /* speaker off: reading pace, a little over speech */
 #define TEXT_HOLD_S 2                      /* speaker off: how long a message's last lines stay up */
 
@@ -132,7 +137,7 @@ static_assert(MP3_BUF > MP3_POLL_ROOM + MP3_HOLD, "reads would stall with the MP
  * server transcribes it. Set to 0 to stream to /api/voice/dictation instead.
  */
 #define VOICE_NOTE 1
-#define NOTE_MAX_BYTES (MIC_RATE * 2 * 20) /* 20 s of 16 kHz PCM; Muse stops at 15 */
+#define NOTE_MAX_BYTES (MIC_RATE * 2 * 20) /* 20 s of PCM; Muse stops at 15 */
 #define NOTE_PART_BYTES (DICT_CHUNK_BYTES / 4 * 3)   /* staged PCM that base64s to one body chunk */
 
 #define MAX_MSGS 8
@@ -212,6 +217,7 @@ struct msg_t {
     tts_t tts;
     uint32_t pcm_start;      /* where its speech starts in the reply audio */
     uint32_t pcm_frames;     /* how long it is; 0 until the MP3 has all arrived */
+    bool qwen;               /* spoken by muse_tts, which knows where in the text it is */
 };
 
 struct resampler_t {
@@ -231,7 +237,7 @@ struct turn_t {
     resampler_t up;
     uint8_t *chunk;          /* DICT_CHUNK_BYTES, plus the note's tail */
     size_t chunk_len;
-    uint8_t *note;           /* NOTE_PART_BYTES of 16 kHz PCM waiting for base64 */
+    uint8_t *note;           /* NOTE_PART_BYTES of MIC_RATE PCM waiting for base64 */
     size_t note_len;
     size_t pcm_bytes;        /* the note so far */
     size_t body_sent;
@@ -248,6 +254,7 @@ struct turn_t {
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
     bool pcm_tts;            /* tts_msg's speech comes from muse_tts as PCM, not MP3 */
+    bool tts_primed;         /* enough of it buffered to start playing without gaps */
     uint8_t *mp3;            /* MP3_BUF */
     size_t mp3_len;
     bool mp3_ended;
@@ -1552,13 +1559,18 @@ static void start_tts(void)
 #if CONFIG_MUSE_TTS_QWEN
         /* Qwen TTS streams PCM instead (play_tts_pcm); without a key, or
          * with the speaker off, the reply stays text. */
+        if (s_turn.texts && muse_settings_speaker_on() && muse_tts_ready()) {
+            muse_tts_clean(s_turn.texts + i * TEXT_MAX);   /* captions show what's said */
+        }
         if (s_turn.texts && muse_settings_speaker_on() && muse_tts_speak(s_turn.texts + i * TEXT_MAX)) {
+            m.qwen = true;
             m.pcm_start = s_turn.pcm_out;
             m.pcm_frames = 0;
             m.tts = TTS_ACTIVE;
             s_turn.tts_msg = i;
             s_turn.silent = false;
             s_turn.pcm_tts = true;
+            s_turn.tts_primed = false;
             s_turn.down_rate = 0;
             mark(M_TTS);
             ESP_LOGI(TAG, "speaking message %s (%u chars)", m.id, (unsigned)m.len);
@@ -1622,10 +1634,20 @@ static void pace_silently(void)
 }
 
 #if CONFIG_MUSE_TTS_QWEN
+/* Speech held back before the first frame plays: it arrives in bursts, and
+ * starting on the first one leaves gaps while the next is still on its way. */
+#define TTS_PRIME_FRAMES (MIC_RATE * 6 / 10)
+
 /* Resamples Qwen TTS's PCM into the reply buffer while it has room. */
 static void play_tts_pcm(void)
 {
     msg_t &m = s_turn.msgs[s_turn.tts_msg];
+    if (!s_turn.tts_primed) {
+        if (muse_tts_buffered() < TTS_PRIME_FRAMES && !muse_tts_fetched()) {
+            return;
+        }
+        s_turn.tts_primed = true;
+    }
     if (s_turn.down_rate != MUSE_TTS_RATE) {
         s_turn.down_rate = MUSE_TTS_RATE;
         resampler_init(&s_turn.down, MUSE_TTS_RATE, MIC_RATE);
@@ -1643,12 +1665,17 @@ static void play_tts_pcm(void)
         }
         s_turn.pcm_out += n;
     }
+    if (!m.pcm_frames && muse_tts_fetched() && !muse_tts_failed()) {
+        /* All of it is here: what's been played or queued, plus what's buffered. */
+        m.pcm_frames = s_turn.pcm_out - m.pcm_start + (uint32_t)muse_tts_buffered();
+    }
     if (!muse_tts_finished()) {
         return;
     }
     s_turn.pcm_tts = false;
     if (muse_tts_failed() && s_turn.pcm_out == m.pcm_start) {
         /* Nothing spoken: show the text at reading pace instead. */
+        m.qwen = false;
         m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
         s_turn.silent = true;
         return;
@@ -2073,6 +2100,11 @@ static void hatch_task(void *arg)
             continue;
         }
         if (s_turn.phase == P_WAIT_REPLY) {
+#if CONFIG_MUSE_TTS_QWEN
+            if (s_turn.tts_msg < 0 && !s_turn.text && muse_settings_speaker_on()) {
+                muse_tts_prepare();   /* reopens the session if it dropped during a long wait */
+            }
+#endif
             start_tts();
             decode();
         }
@@ -2240,6 +2272,23 @@ extern "C" muse_hatch_ev_t muse_hatch_turn_event(char *text, size_t cap)
     return MUSE_HATCH_EV_NONE;
 }
 
+/* How long `text` takes to say, before its speech's length is known: Chinese
+ * and Japanese go about 4 characters a second, Latin text about 14. Counting
+ * UTF-8 bytes alone ran CJK captions ahead of the voice. */
+static uint32_t speech_frames(const char *text)
+{
+    uint32_t cjk = 0, other = 0;
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        if (*p >= 0xE3 && *p <= 0xEF) {
+            cjk++;              /* a 3-byte character from U+3000 up: CJK, kana, fullwidth */
+        } else if ((*p & 0xC0) != 0x80) {
+            other++;            /* the first byte of anything else */
+        }
+    }
+    return (uint32_t)((uint64_t)MIC_RATE * cjk * 10 / CJK_CHARS_PER_10S +
+                      (uint64_t)MIC_RATE * other / SPEECH_CHARS_PER_S);
+}
+
 extern "C" bool muse_hatch_turn_caption(size_t played, char *out, size_t cap)
 {
     /* The message being spoken: the last one whose speech has started. */
@@ -2262,8 +2311,13 @@ extern "C" bool muse_hatch_turn_caption(size_t played, char *out, size_t cap)
         return false;
     }
     size_t len = strlen(text);
-    uint32_t frames = m->pcm_frames ? m->pcm_frames : (uint32_t)(len * MIC_RATE / SPEECH_CHARS_PER_S);
+    uint32_t frames = m->pcm_frames ? m->pcm_frames : speech_frames(text);
     size_t at = frames ? (size_t)((uint64_t)(played - m->pcm_start) * len / frames) : 0;
+#if CONFIG_MUSE_TTS_QWEN
+    if (m->qwen) {
+        at = muse_tts_text_at(played - m->pcm_start);
+    }
+#endif
     if (at >= len) {
         at = len ? len - 1 : 0;
     }

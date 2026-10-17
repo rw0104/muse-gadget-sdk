@@ -46,3 +46,6 @@ CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
 
 # Chinese replies show as Chinese, not boxes (~850 KB of flash).
 CONFIG_MUSE_CJK_FONT=y
+
+# 24 kHz audio: Qwen TTS replies keep their treble; dictation takes it as is.
+CONFIG_MUSE_AUDIO_RATE=24000

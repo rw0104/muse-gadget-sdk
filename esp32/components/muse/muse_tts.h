@@ -65,8 +65,9 @@ bool muse_tts_failed(void);
 /* Stops the fetch and drops what's buffered. */
 void muse_tts_cancel(void);
 
-/* Console lines "tts_key=..." and "tts_voice=...", without their '>'. False if
- * the line is neither. Answers "@tts_key ok|cleared|error <why>". */
+/* Console lines "tts_key=...", "tts_voice=..." and "tts_rate=..." (1.1, or empty
+ * for the default), without their '>'. False if the line is none of them.
+ * Answers "@tts_key ok|cleared|error <why>". */
 bool muse_tts_console_command(const char *line);
 
 #ifdef __cplusplus

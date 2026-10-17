@@ -17,6 +17,7 @@
 
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -40,12 +41,17 @@ static const char *TAG = "muse_tts";
 #define MODEL "qwen3-tts-flash-realtime"
 #define KEY_MAX 255
 #define VOICE_MAX 31
+/* Speaking rate in percent, sent as session.update's speech_rate (the server
+ * takes 0.5 to 2.0). ">tts_rate=" with no value goes back to this. */
+#define RATE_DEFAULT 110
+#define RATE_MIN 50
+#define RATE_MAX 200
 #define TEXT_MAX 4096
 #define APPEND_MAX 1024                    /* text per input_text_buffer.append */
 #define SEG_MIN 60                         /* a segment ends at the first sentence end past this weight */
 #define SEG_MAX 1200                       /* and is cut anyway here (the server's limit is 2000) */
 #define SEGS_MAX 64
-#define FRAMES_PER_WEIGHT (MUSE_TTS_RATE / 9)  /* speech per weight unit, until a segment's been timed */
+#define FRAMES_PER_WEIGHT (MUSE_TTS_RATE / 9)  /* speech per weight unit at rate 100, until a segment's been timed */
 #define PCM_BUF (MUSE_TTS_RATE * 2 * 10)   /* 10 s of speech ahead of the speaker */
 #define FRAME_MAX (64 * 1024)              /* one server event: deltas are ~13 KB of base64 */
 #define AUDIO_MAX (FRAME_MAX * 3 / 4)
@@ -60,6 +66,7 @@ enum { CONN_OFF, CONN_OPENING, CONN_READY };                  /* the session */
 
 static char s_key[KEY_MAX + 1];
 static char s_voice[VOICE_MAX + 1] = "Cherry";
+static uint16_t s_rate = RATE_DEFAULT;
 static bool s_loaded;
 static char *s_text;            /* the reply being spoken */
 static size_t s_sent;           /* how much of it has gone to the server */
@@ -104,6 +111,9 @@ static void load(void)
     n = sizeof(s_voice);
     if (nvs_get_str(h, "voice", s_voice, &n) != ESP_OK || !s_voice[0]) {
         strlcpy(s_voice, "Cherry", sizeof(s_voice));
+    }
+    if (nvs_get_u16(h, "rate", &s_rate) != ESP_OK || s_rate < RATE_MIN || s_rate > RATE_MAX) {
+        s_rate = RATE_DEFAULT;
     }
     nvs_close(h);
 }
@@ -153,6 +163,7 @@ static void send_session_update(void)
     cJSON_AddStringToObject(session, "response_format", "pcm");
     cJSON_AddNumberToObject(session, "sample_rate", MUSE_TTS_RATE);
     cJSON_AddStringToObject(session, "language_type", "Auto");
+    cJSON_AddNumberToObject(session, "speech_rate", s_rate / 100.0);
     send_event(event);
 }
 
@@ -619,7 +630,7 @@ size_t muse_tts_text_at(uint32_t frame)
                 w += s_seg[j].weight;
             }
             frames = w && start ? (uint32_t)((uint64_t)start * s_seg[i].weight / w)
-                                : s_seg[i].weight * FRAMES_PER_WEIGHT;
+                                : s_seg[i].weight * FRAMES_PER_WEIGHT * 100 / s_rate;
             frames = frames > s_pushed - start ? frames : s_pushed - start;
         }
         at = s_seg[i].off + (frames ? (size_t)((uint64_t)(frame - start) * len / frames) : 0);
@@ -753,6 +764,41 @@ static bool save(const char *name, const char *value)
     return err == ESP_OK;
 }
 
+/* Stores the rate, or forgets it when it's the default. */
+static bool save_rate(uint16_t rate)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = rate != RATE_DEFAULT ? nvs_set_u16(h, "rate", rate) : nvs_erase_key(h, "rate");
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err == ESP_OK;
+}
+
+/* "1.1" or "110" to percent; 0 if it's neither or out of range. Empty is the default. */
+static uint16_t parse_rate(const char *s)
+{
+    if (!s[0]) {
+        return RATE_DEFAULT;
+    }
+    char *end;
+    double v = strtod(s, &end);
+    if (*end || v != v) {
+        return 0;
+    }
+    if (v <= RATE_MAX / 100.0) {
+        v *= 100;
+    }
+    return v >= RATE_MIN - 0.5 && v < RATE_MAX + 0.5 ? (uint16_t)(v + 0.5) : 0;
+}
+
 static bool valid(const char *s, size_t max)
 {
     size_t n = strlen(s);
@@ -801,6 +847,20 @@ bool muse_tts_console_command(const char *line)
             muse_tts_close();
             ESP_LOGI(TAG, "voice %s", s_voice);
             answer("tts_voice", "ok");
+        }
+        return true;
+    }
+    if (!strncmp(line, "tts_rate=", 9)) {
+        uint16_t rate = parse_rate(line + 9);
+        if (!rate) {
+            answer("tts_rate", "error invalid");
+        } else if (!save_rate(rate)) {
+            answer("tts_rate", "error storage");
+        } else {
+            s_rate = rate;
+            muse_tts_close();      /* the next session speaks at it */
+            ESP_LOGI(TAG, "speech rate %u.%02u", rate / 100, rate % 100);
+            answer("tts_rate", "ok");
         }
         return true;
     }

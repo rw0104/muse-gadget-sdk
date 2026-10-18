@@ -43,7 +43,7 @@ static const char *TAG = "muse_tts";
 #define VOICE_MAX 31
 /* Speaking rate in percent, sent as session.update's speech_rate (the server
  * takes 0.5 to 2.0). ">tts_rate=" with no value goes back to this. */
-#define RATE_DEFAULT 110
+#define RATE_DEFAULT 100
 #define RATE_MIN 50
 #define RATE_MAX 200
 #define TEXT_MAX 4096
